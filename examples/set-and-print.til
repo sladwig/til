@@ -1,4 +1,7 @@
-import std.io as io
+print "START"
 
 set x 123
-io.out $x
+print $x
+assert $($x == 123)
+
+print "END"

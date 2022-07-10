@@ -1,0 +1,3 @@
+import hello h
+
+h.print "Hello, printed from a dynamic library"

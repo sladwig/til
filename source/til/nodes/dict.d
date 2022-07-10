@@ -3,39 +3,40 @@ module til.nodes.dict;
 import til.nodes;
 
 
-class Dict : ListItem
+CommandsMap dictCommands;
+
+
+class Dict : Item
 {
-    ListItem[string] values;
+    Item[string] values;
 
     this()
     {
+        this.type = ObjectType.Dict;
+        this.commands = dictCommands;
+        this.typeName = "dict";
     }
-    this(ListItem[string] values)
+    this(Item[string] values)
     {
+        this();
         this.values = values;
-    }
-
-    override ListItem extract(Items arguments)
-    {
-        string key = to!string(arguments.map!(x => to!string(x)).join("."));
-        return this[key];
     }
 
     // ------------------
     // Conversions
     override string toString()
     {
-        string s = "dict ";
-        foreach(key, value; values)
-        {
-            s ~= key ~ "=" ~ to!string(value) ~ " ";
-        }
+        string s = "dict("
+            ~ to!string(
+                values.keys.map!(key => key ~ "=" ~ values[key].toString()).join(" ")
+            )
+            ~ ")";
         return s;
     }
 
     // ------------------
     // Operators
-    ListItem opIndex(string k)
+    Item opIndex(string k)
     {
         auto v = values.get(k, null);
         if (v is null)
@@ -44,8 +45,38 @@ class Dict : ListItem
         }
         return v;
     }
-    void opIndexAssign(ListItem v, string k)
+    void opIndexAssign(Item v, string k)
     {
+        debug {stderr.writeln(" dict[", k, "] = ", to!string(v));}
         values[k] = v;
+    }
+
+    Dict navigateTo(Items items, bool autoCreate=true)
+    {
+        debug {stderr.writeln("navigateTo:", items, "/", autoCreate);}
+        auto pivot = this;
+        foreach (item; items)
+        {
+            string key = item.toString();
+            auto nextDict = (key in pivot.values);
+            if (nextDict is null)
+            {
+                if (autoCreate)
+                {
+                    auto d = new Dict();
+                    pivot[key] = d;
+                    pivot = d;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                pivot = cast(Dict)pivot[key];
+            }
+        }
+        return pivot;
     }
 }

@@ -9,31 +9,28 @@ debug
     import std.stdio;
 }
 
-
-enum ErrorCode
-{
-    Unknown,
-    InternalError,
-    CommandNotFound,
-    InvalidArgument,
-    InvalidSyntax,
-    SemanticError,
-}
+CommandsMap errorCommands;
 
 
-class Erro : ListItem
+class Erro : Item
 {
     int code = -1;
     string classe;
     string message;
-    Process process = null;
+    Item object;
+    Context context;
 
-    this(Process process, string message, int code, string classe)
+    this(string message, int code, string classe, Context context, Item object=null)
     {
-        this.process = process;
+        this.object = object;
         this.message = message;
         this.code = code;
         this.classe = classe;
+        this.type = ObjectType.Error;
+        this.context = context;
+
+        this.typeName = "error";
+        this.commands = errorCommands;
     }
 
     // Conversions:
@@ -45,25 +42,7 @@ class Erro : ListItem
         {
             s ~= " (" ~ classe ~ ")";
         }
+        s ~= " on " ~ context.description;
         return s;
-    }
-
-    // Extractions:
-    override ListItem extract(Items items)
-    {
-        if (items.length == 0) return this;
-        auto arg = items.map!(x => to!string(x)).join(" ");
-
-        switch(arg)
-        {
-            case "code":
-                return new IntegerAtom(code);
-            case "process id":
-                return new IntegerAtom(process.index);
-            default:
-                throw new Exception(
-                    "`" ~ arg ~ "` extraction not implemented"
-                );
-        }
     }
 }

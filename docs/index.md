@@ -1,24 +1,19 @@
+[Blog](posts) | [Examples](https://github.com/til-lang/til/tree/master/examples)
+
+---
+
 ## A command language on top of D
 
 Til is a **command language**, like [Tcl](https://www.tcl.tk/), built
-on top of [D](https://dlang.org/), so it kind of has a foot in both
-worlds.
+using [D](https://dlang.org/).
 
 
-Being a command language means it is **easy to learn** and the syntax is
-very extensible. And being built with D means it is **very simple to build
-new modules** for it.
+Being a command language means it is **easy to learn** -- the syntax is
+restricted. And being built with D means it is **very simple to build
+new packages** for it.
 
 
-Til makes use of **Fibers** so the interpreter is **async by default** and
-spawning a new *process* ("process" not in the OS sense, but in the
-**Erlang** sense) is trivial.
-
-And, finally, Til has **data streams** that allow you to process data
-using a (hopefully) familiar concept: **pipes**.
-
-
-(Oh, and [Til is very opinionated](opinionated.md). Beware.)
+(But beware: [Til is very opinionated](opinionated.md).)
 
 
 ## So, in brief, Til is
@@ -27,7 +22,6 @@ using a (hopefully) familiar concept: **pipes**.
 * loosely based on **Tcl**;
 * built with **D**;
 * easily extensible;
-* async by default.
 
 ## Examples
 
@@ -52,26 +46,24 @@ after that.
 ### Variables values and printing
 
 ```tcl
-import std.io as io
-
 set s "Hello, World!"
-io.out $s
+print $s
 ```
 
-The snippet above will print `Hello, World!` using the `std.io` builtin
-package. Til has the concept of **Atoms**, so in `set s "Hello, World!"`
-we have 2 Atoms (`set` and `s`) and 1 String (`"Hello, World!"`). And in
-`io.out $s` we have, again, 2 Atoms (`io.out` and `$s`), being the second
-one a Substitution Atom, that is, an Atom that, when **evaluated**,
-returns the value stored in the current context with name `s`.
+The snippet above will print `Hello, World!`. Til has the concept of
+**Atoms**, so in `set s "Hello, World!"` we have 2 Atoms (`set` and `s`)
+and 1 String (`"Hello, World!"`). And in `print $s` we have, again,
+2 Atoms (`print` and `$s`), being the second one a Substitution Atom, that
+is, an Atom that, when **evaluated**, returns the value stored in the
+current context with name `s`.
 
-### ExecLists, auto-import, Math and String substitutions
+### ExecLists, Math and String substitutions
 
 ```tcl
 set a 11
 set b 22
-set result [math ($a + $b)]
-io.out "The result is $result"
+set result [+ $a $b]
+print "The result is $result"
 ```
 
 The snippet above will print `The result is 33`. The first new concept is
@@ -79,53 +71,48 @@ the use of square brackets (`[]`). They form what we call an ExecList.
 
 An ExecList contains any SubProgram and **are evaluated immediately**,
 that is, the SubProgram is executed before the command (in this case,
-`set`) is run. So, when saying `set result [math ($a + $b)]`,
-`math ($a + $b)` will be executed and the result (`33`) will become the
-last argument of the `set` command, becoming `set result 33`.
+`set`) is run. So, when saying `set result [+ $a $b]`, `+ $a
+$b` will be executed and the result (`33`) will become the last
+argument of the `set` command, becoming `set result 33`.
 
 
-But where `math` came from? Well, it´s not a builtin command of the
-language (although the language **has** some builtin commands), but,
-instead, is a **module** whose complete name is `std.math`. When Til
-interpreter faces an unknown command name it tries to import a proper
-module automatically, so you don´t need to clog every program header with
-a lot of `import` statements.
-
-
-And, besides that, **a module can be called as a command**. `std.math`,
-for instance, implements a `run` command, but also can be called simply as
-`std.math` (or `math` if you´re using it as an alias). That´s because lots
-of modules have a very, very, common usage to the point where forcing
-developers to always use a "qualified name" feels simply wrong. And
-boring.
-
-An interesting example is the `std.dict` module. It´s main purpose is
-inevitably going to be to **create new dictionaries** ("dict" in the
-Python sense: it´s like an "associative array" in D or an "object" in
-Javascript). So that would feel boring to always call `dict.create`, like
-in:
-
-```tcl
-import std.dict as dict
-set d1 [dict.create (a "alfa") (b "beta") (c "gama")]
-set d2 [dict.create (alfa 1) (beta 2) (gama 3)]
-```
-
-It´s much easier to simply write:
-
-```tcl
-set d1 [dict (a "alfa") (b "beta") (c "gama")]
-set d2 [dict (alfa 1) (beta 2) (gama 3)]
-```
-
-**That´s the case for `std.math` module**: you don´t have to call
-`math.run` every time, because that´s the main purpose of the module, so
-simply calling `math` will do.
-
-
-And, the last item in this session is **string substitution**. It works as
+The last item in this session is **string substitution**. It works as
 expected, really: you can reference values inside a string using the `$`
 sign.
+
+## Infix notation
+
+Til cares about your *comfort*, so you don't have to work with prefix
+notation! Instead of writing
+
+```tcl
+set result [+ $a $b]
+```
+
+you can write
+
+```tcl
+set result $($a + $b)
+```
+
+Til tries to **avoid creating new syntax** whenever possible, but this
+kind of "sugar" makes the programmer's life **much** easier.
+
+Notice that prefix notation is the default way of working in Til, since
+it's a *command language*. What the `$()` does is simply to turn infix
+into prefix notation.
+
+Thus,
+
+```tcl
+$(t1 op1 t2 op2 t3 op3 t4)
+```
+
+will become
+
+```tcl
+[op3 [op2 [op1 t1 t2] t3] t4]
+```
 
 ## Extractions
 
@@ -149,7 +136,7 @@ In Til there´s the concept of **Extractions**:
 
 ```tcl
 set d [dict (alfa 11) (beta 22) (gama 33)]
-io.out "alfa is " <$d alfa>
+print "alfa is " <$d alfa>
 # Output: alfa is 11
 ```
 
@@ -158,15 +145,15 @@ can retrieve elements from a list easily:
 
 ```tcl
 set lista (a b c d e)
-io.out "Second element is " <$lista 1>
+print "Second element is " <$lista 1>
 # a
-io.out "Fourth and fifth elements are " <$lista 3 5>
+print "Fourth and fifth elements are " <$lista 3 5>
 # (d e)
-io.out "First element is " <$lista head>
+print "First element is " <$lista head>
 # a
-io.out "Tail is " <$lista tail>
+print "Tail is " <$lista tail>
 # (b c d e)
-io.out "Even-indexed elements are " <$lista (0 2 4)>
+print "Even-indexed elements are " <$lista (0 2 4)>
 # (a c e)
 ```
 
@@ -183,7 +170,7 @@ proc cmd_push {fd argv dir} {
 
 ```tcl
 proc f (x y) {
-    return [math ($x * $y)]
+    return $($x * $y)
 }
 ```
 
@@ -234,6 +221,19 @@ proc $procedure_name $parameters_list $body
 As long as each variable represents an Atom, a SimpleList and a SubList,
 you´ll be able to define a new procedure without any problem.
 
+## Pipes
+
+There's not much magic in pipes: basically, whatever is left on the stack
+by the command on the left is kept there to be "consumed" by the command
+on the right.
+
+```tcl
+list 1 2 3 | print
+# (1 2 3)
+```
+
+A sequence of commands connected through pipes is called a Pipeline.
+
 ## Ranges, foreach, comments and Streams
 
 The simplest example showing the use of streams is this `foreach` that
@@ -241,7 +241,7 @@ prints the current number from a range of some integer numbers:
 
 ```tcl
 range 3 | foreach x {
-    io.out $x
+    print $x
 }
 
 # The expected output is:
@@ -254,18 +254,38 @@ range 3 | foreach x {
 (Yup, `range` **will** include the "limit" -- "3" in this case.)
 
 
-`range` is a very versatile command (it´s actually the **module**
-`std.range`) that allows you to create various kinds of ranges and even
-transform a SimpleList into a data stream.
+`range` is a very versatile command that allows you to create various
+kinds of ranges and even transform a SimpleList into a data stream.
 
-**Data streams travel through pipes** (`|`) and various commands connected
-by pipes are called a **Pipeline**.
+Any object that have a "method" `next` is considered a Stream. You can
+even create your own:
 
+```tcl
+type my_generator {
+    proc init () {
+        return 0
+    }
+    proc next ($obj) {
+        incr $obj
+        if $($obj > 5) { break }
+        continue $obj
+    }
+}
 
-The rules governing the use of data streams are these:
+my_generator | foreach x { print $x }
+# 1
+# 2
+# 3
+# 4
+# 5
+```
+
+### When to use a Stream?
+
+The rules governing the use of Streams are these:
 
 * if you can easily predict the number of items, use common parameters;
-* if you have no idea how many items there are, use streams.
+* if you have no idea how many items there are, use Streams.
 
 
 So, for instance, if you want to *walk through a directory* you should use
@@ -281,7 +301,7 @@ use **destructuring set** to store each one into a variable:
 ```tcl
 my_stream | foreach item {
     # $item is (origin headers data)
-    set origin headers data $item
+    set (origin headers data) $item
 }
 ```
 
@@ -292,59 +312,11 @@ a SimpleList:
 set a b c (1 2 3)
 ```
 
-## Spawning processes, messages and backpressure
-
-```tcl
-proc ping (target) {
-    receive | foreach msg {
-        send $target $msg
-        break
-    }
-}
-
-proc pong () {
-    receive | foreach msg {
-        io.out "Received $msg"
-        break
-    }
-}
-
-set writer_process [spawn pong]
-set sender_process [spawn ping $writer_process]
-
-send $sender_process "a message and exited"
-```
-
-The expected output of this program would be:
-
-`Received a message and exited`
-
-The summary of what happened is as follows:
-
-* `ping` procedure is defined;
-* `pong` procedure is defined;
-* A `pong` process is spawned and its **Pid** is stored into
-  `writer_process` variable;
-* A `ping` process is spawned and its Pid is stored into `sender_process`
-  variable;
-* The main process sends a message `"a message and exited"` to
-  `$sender_process`, that is the Pid of the `ping` process, **and quits**.
-* The `ping` process receives the message, sends it to `$target` (that is
-  the `pong` process), breaks the loop and quits.
-* The `pong` process prints to standard output, breaks the loop and quits.
-
-About **backpressure**: each process has a **message box** with limited
-size. If your own process is trying to send a message to another one whose
-message box is already full, **your process will be blocked**.
-
-(It will block its execution, but not the *scheduler* itself, of course.
-That is: other processes won´t be affected.)
-
 ## Includes
 
 There is a core concept in Til that is: **every program is one file
-only**. There is no "module" in the Python or Ruby sense, like an entity
-that lives somewhere inside the interpreter´s memory. In Til your modules
+only**. There is no "package" in the Python or Ruby sense, like an entity
+that lives somewhere inside the interpreter´s memory. In Til your packages
 are only **commands providers** and any Til code you would want to include
 into your program must be... **included** in your program.
 
@@ -359,7 +331,7 @@ include "path/my_code.til"
 
 You see, Til is a nice language, but **you´re not supposed to write
 complex code in Til**. If you want to implement some algorithm, **write it
-in D** and share it as a module.
+in D** and share it as a package.
 
 The rationale is going to be explained in more details in another article,
 but for now it suffices to say that **Til is a scripting language** and
@@ -374,21 +346,40 @@ proc throw_error () {
     error "Test error"
 }
 
-proc error.handler (x) {
-    io.out "error.handler called."
-    io.out "  received: $x"
-    io.out "  IGNORING IT!"
+proc on.error (x) {
+    print "on.error:"
+    print "  received: $x"
+    print "  IGNORING IT!"
 }
 
-io.out "Calling procedure `throw_error`..."
+print "Calling procedure `throw_error`..."
 throw_error
-io.out "Procedure `throw_error` was called and the error was handled."
+print "Procedure `throw_error` was called and the error was handled."
 ```
+
+## Scopes
+
+If you want to divide a long algorithm in different scopes but can't do
+that using new procedures (for instance: when loading a lot of local
+variables), you can create a new `scope`:
+
+```tcl
+
+scope "load all the necessary variables" {
+    # load them all here
+}
+
+The new scope share variables with its parent, so they are still visible
+when it closes, but don't share new procedures, so you can define them as
+needed without messing with the parent scope -- it's useful if you have
+many procedures with the same name but for different contexts
 
 ## And more
 
+* [Til built-in types](types)
+
 In the Til repository, look for the `examples` directory.
 
-## Building your own modules
+## Building your own packages
 
-See [Building your own module](modules).
+See [Building your own package](packages).

@@ -1,26 +1,19 @@
 module til.grammar;
 
-import std.algorithm : among;
+import std.algorithm : among, canFind;
 import std.conv : to;
 import std.math : pow;
-import std.range : back, popBack;
 
+import til.conv;
 import til.exceptions;
 import til.nodes;
-
-
-debug
-{
-    import std.array : join;
-    import std.stdio;
-}
 
 
 const EOL = '\n';
 const SPACE = ' ';
 const TAB = '\t';
 const PIPE = '|';
-
+const STOPPERS = [')', '>', ']', '}'];
 
 // Integers units:
 uint[char] units;
@@ -30,6 +23,14 @@ static this()
     units['K'] = 1;
     units['M'] = 2;
     units['G'] = 3;
+}
+
+class IncompleteInputException : Exception
+{
+    this(string msg)
+    {
+        super(msg);
+    }
 }
 
 class Parser
@@ -49,24 +50,23 @@ class Parser
     }
 
     // --------------------------------------------
-    void push(string s)
-    {
-        stack ~= s ~ ":" ~ to!string(line);
-        debug {stderr.writeln("STACK:", to!string(stack.join(" ")), " ← ");}
-    }
-    void pop()
-    {
-        auto popped = stack.back;
-        stack.popBack;
-        debug {stderr.writeln("STACK:", to!string(stack.join(" ")), " → ", popped);}
-    }
-
-    // --------------------------------------------
     SubProgram run()
     {
-        push("program");
-        auto sp = consumeSubProgram();
-        pop();
+        SubProgram sp;
+        try
+        {
+            sp = consumeSubProgram();
+        }
+        catch(Exception ex)
+        {
+            throw new Exception(
+                "Error at line " ~
+                to!string(line) ~
+                ", column " ~
+                to!string(col) ~
+                ": " ~ to!string(ex)
+            );
+        }
         return sp;
     }
 
@@ -74,11 +74,15 @@ class Parser
     {
         return code[index];
     }
+    char lastChar()
+    {
+        return code[index - 1];
+    }
     char consumeChar()
     {
         if (eof)
         {
-            throw new Exception("Code input already ended.");
+            throw new IncompleteInputException("Code input already ended");
         }
         debug {
             if (code[index] == EOL)
@@ -90,14 +94,14 @@ class Parser
                 stderr.writeln("consumed: '", code[index], "'");
             }
         }
-        auto result =  code[index++];
+        auto result = code[index++];
         col++;
 
         if (result == EOL)
         {
             col = 0;
             line++;
-            debug {stderr.writeln("line ", line);}
+            debug {stderr.writeln("== line ", line, " ==");}
         }
 
         if (index >= code.length)
@@ -115,7 +119,8 @@ class Parser
     {
         if (eof) return;
 
-        debug {stderr.writeln("whitespaces start");}
+        int counter = 0;
+
         bool consumed = true;
 
         while (consumed && !eof)
@@ -126,15 +131,22 @@ class Parser
             {
                 consumeChar();
                 consumed = true;
+                counter++;
             }
             // Comments:
             if (currentChar == '#')
             {
                 consumeLine();
                 consumed = true;
+                counter++;
             }
         }
-        debug {stderr.writeln("            end");}
+        debug {
+            if (counter)
+            {
+                stderr.writeln("whitespaces (" ~ to!string(counter) ~ ")");
+            }
+        }
     }
     void consumeLine()
     {
@@ -147,13 +159,13 @@ class Parser
     }
     void consumeWhitespace()
     {
-        debug {stderr.writeln("consuming whitespace");}
         assert(isWhitespace);
+        debug {stderr.writeln("whitespace");}
         consumeChar();
     }
     void consumeSpace()
     {
-        debug {stderr.writeln("consuming whitespace");}
+        debug {stderr.writeln("  SPACE");}
         assert(currentChar == SPACE);
         consumeChar();
     }
@@ -181,7 +193,6 @@ class Parser
     // Nodes
     SubProgram consumeSubProgram()
     {
-        push("subprogram");
         Pipeline[] pipelines;
 
         consumeWhitespaces();
@@ -191,20 +202,19 @@ class Parser
             pipelines ~= consumePipeline();
         }
 
-        pop();
         return new SubProgram(pipelines);
     }
 
     Pipeline consumePipeline()
     {
-        push("pipeline");
-        Command[] commands;
+        CommandCall[] commands;
 
         consumeWhitespaces();
 
         while (!isEndOfLine && !isStopper)
         {
-            commands ~= consumeCommand();
+            auto command = consumeCommandCall();
+            commands ~= command;
 
             if (currentChar == PIPE) {
                 consumeChar();
@@ -217,38 +227,39 @@ class Parser
         }
 
         if (isEndOfLine && !eof) consumeChar();
-        pop();
         return new Pipeline(commands);
     }
 
-    Command consumeCommand()
+    CommandCall consumeCommandCall()
     {
-        push("command");
+        // inline transform/foreach:
+        if (currentChar == '{')
+        {
+            CommandCall nextCall = foreachInline();
+            if (!isEndOfLine)
+            {
+                // Whops! It's not a foreach.inline, but a transform.inline!
+                nextCall.name = "transform.inline";
+                consumeWhitespaces();
+            }
+            return nextCall;
+        }
+
         NameAtom commandName = cast(NameAtom)consumeAtom();
-        // TODO: validate the name, maybe?
-        ListItem[] arguments;
+        Item[] arguments;
 
         // That is: if the command HAS any argument:
-        while (currentChar == SPACE)
+        while (true)
         {
-            consumeSpace();
-            if (currentChar == PIPE)
-            {
-                break;
-            }
-            arguments ~= consumeListItem();
-
             if (currentChar == EOL)
             {
-                /*
-                Verify if it is not a continuation:
-                cmd a b c
-                  . d e
-                */
+                consumeChar();
                 consumeWhitespaces();
                 if (currentChar == '.')
                 {
                     consumeChar();
+                    consumeSpace();
+                    arguments ~= consumeItem();
                     continue;
                 }
                 else
@@ -256,21 +267,38 @@ class Parser
                     break;
                 }
             }
+            else if (currentChar == SPACE)
+            {
+                consumeSpace();
+                if (currentChar.among!('}', ']', ')', '>', PIPE))
+                {
+                    break;
+                }
+                arguments ~= consumeItem();
+            }
+            else
+            {
+                break;
+            }
         }
-        pop();
-        return new Command(commandName.toString(), arguments);
+
+        return new CommandCall(commandName.toString(), arguments);
+    }
+    CommandCall foreachInline()
+    {
+        return new CommandCall("foreach.inline", [consumeSubList()]);
     }
 
-    ListItem consumeListItem()
+    Item consumeItem()
     {
         debug {
-            stderr.writeln("   consumeListItem");
+            stderr.writeln("   consumeItem");
             stderr.writeln("    - currentChar: '", currentChar, "'");
         }
         switch(currentChar)
         {
             case '{':
-                return consumeSubList();
+                return consumeSubString();
             case '[':
                 return consumeExecList();
             case '(':
@@ -278,66 +306,126 @@ class Parser
             case '<':
                 return consumeExtraction();
             case '"':
+            case '\'':
                 return consumeString();
             default:
                 return consumeAtom();
         }
     }
 
-    SubList consumeSubList()
+    Item consumeSubString()
     {
-        push("SubList");
+        /*
+        set s {{
+            something and something else
+        }}
+        // $s -> "something and something else"
+        */
+
+        auto open = consumeChar();
+        assert(open == '{');
+
+        if (currentChar == '{')
+        {
+            // It's a subString!
+
+            // Consume the current (and second) '{':
+            consumeChar();
+
+            // Consume any opening newlines and spaces:
+            consumeWhitespaces();
+
+            char[] token;
+            while (true)
+            {
+                if (currentChar == '}')
+                {
+                    consumeChar();
+                    if (currentChar == '}')
+                    {
+                        consumeChar();
+
+                        // Find all the blankspaces in the end of the string:
+                        size_t end = token.length;
+                        do
+                        {
+                            end--;
+                        }
+                        while (token[end].among!(SPACE, TAB, EOL));
+
+                        return new String(to!string(token[0..end+1]));
+                    }
+                    else
+                    {
+                        token ~= '}';
+                    }
+                }
+                else if (currentChar == '\n')
+                {
+                    token ~= consumeChar();
+                    consumeWhitespaces();
+                    continue;
+                }
+                token ~= consumeChar();
+            }
+        }
+        else
+        {
+            auto subprogram = consumeSubProgram();
+            auto close = consumeChar();
+            assert(close == '}');
+            return subprogram;
+        }
+    }
+
+    // Not used since consumeSubString:
+    SubProgram consumeSubList()
+    {
         auto open = consumeChar();
         assert(open == '{');
         auto subprogram = consumeSubProgram();
         auto close = consumeChar();
         assert(close == '}');
 
-        pop();
-        return new SubList(subprogram);
+        return subprogram;
     }
 
     ExecList consumeExecList()
     {
-        push("ExecList");
         auto open = consumeChar();
         assert(open == '[');
         auto subprogram = consumeSubProgram();
         auto close = consumeChar();
         assert(close == ']');
 
-        pop();
         return new ExecList(subprogram);
     }
 
     SimpleList consumeSimpleList()
     {
-        push("SimpleList");
-        ListItem[] items;
+        Item[] items;
         auto open = consumeChar();
         assert(open == '(');
 
         if (currentChar != ')')
         {
-            items ~= consumeListItem();
+            items ~= consumeItem();
         }
         while (currentChar != ')')
         {
             consumeSpace();
-            items ~= consumeListItem();
+            items ~= consumeItem();
         }
 
         auto close = consumeChar();
         assert(close == ')');
 
-        pop();
         return new SimpleList(items);
     }
 
-    ListItem consumeExtraction()
+    Item consumeExtraction()
     {
-        push("Extraction");
-        ListItem[] items;
+        Item[] items;
         auto open = consumeChar();
         assert(open == '<');
 
@@ -346,12 +434,12 @@ class Parser
         // with the start of an Extraction.
         if (currentChar == SPACE)
         {
-            return new OperatorAtom("<");
+            return new String("<");
         }
 
         do
         {
-            items ~= consumeListItem();
+            items ~= consumeItem();
             consumeWhitespaces();
         }
         while (currentChar != '>');
@@ -359,35 +447,35 @@ class Parser
         auto close = consumeChar();
         assert(close == '>');
 
-        pop();
         return new Extraction(items);
     }
 
     String consumeString()
     {
-        push("string");
-        auto open = consumeChar();
-        assert(open == '"');
+        auto opener = consumeChar();
+        assert(opener == '"' || opener == '\'');
 
         char[] token;
-        string[] parts;
-        bool hasSubstitutions = false;
+        StringPart[] parts;
+        bool hasSubstitution = false;
 
-        do 
+        ulong index = 0;
+        while (currentChar != opener)
         {
             if (currentChar == '$')
             {
-                hasSubstitutions = true;
                 if (token.length)
                 {
-                    parts ~= cast(string)token;
+                    parts ~= new StringPart(token, false);
                     token = new char[0];
                 }
 
-                // Current part:
+                // Consume the '$':
+                consumeChar();
 
-                // Add the '$' in front of current part:
-                token ~= consumeChar();
+                // Current part:
+                bool enclosed = (currentChar == '{');
+                if (enclosed) consumeChar();
 
                 while ((currentChar >= 'a' && currentChar <= 'z')
                         || (currentChar >= '0' && currentChar <= '9')
@@ -396,180 +484,191 @@ class Parser
                     token ~= consumeChar();
                 }
 
-                if (token.length > 1)
+                if (token.length != 0)
                 {
-                    parts ~= cast(string)token;
+                    if (enclosed)
+                    {
+                        assert(currentChar == '}');
+                        consumeChar();
+                    }
+
+                    parts ~= new StringPart(token, true);
+                    hasSubstitution = true;
                 }
                 else
                 {
                     throw new Exception(
                         "Invalid string: "
-                        ~ to!string(parts)
-                        ~ cast(string)token
+                        ~ "parts:" ~  to!string(parts)
+                        ~ "; token:" ~ cast(string)token
+                        ~ "; length:" ~ to!string(token.length)
                     );
                 }
                 token = new char[0];
+            }
+            else if (currentChar == '\\')
+            {
+                // Discard the escape charater:
+                consumeChar();
+
+                // And add the next char, whatever it is:
+                switch (currentChar)
+                {
+                    // XXX: this cases could be written at compile time.
+                    case 'b':
+                        token ~= '\b';
+                        consumeChar();
+                        break;
+                    case 'n':
+                        token ~= '\n';
+                        consumeChar();
+                        break;
+                    case 'r':
+                        token ~= '\r';
+                        consumeChar();
+                        break;
+                    case 't':
+                        token ~= '\t';
+                        consumeChar();
+                        break;
+                    // TODO: \u1234
+                    default:
+                        token ~= consumeChar();
+                }
             }
             else
             {
                 token ~= consumeChar();
             }
         }
-        while (currentChar != '"');
 
         // Adds the eventual last part (in
         // simple strings it will be
         // the first part, always:
         if (token.length)
         {
-            parts ~= cast(string)token;
+            parts ~= new StringPart(token, false);
         }
 
-        auto close = consumeChar();
-        assert(close == '"');
+        auto closer = consumeChar();
+        assert(closer == opener);
 
-        pop();
-        if (hasSubstitutions)
+        if (hasSubstitution)
         {
             debug {stderr.writeln("new SubstString: ", parts);}
             return new SubstString(parts);
         }
-        else
+        else if (parts.length == 1)
         {
             debug {stderr.writeln("new String: ", parts);}
-            return new String(parts[0]);
+            return new String(parts[0].value);
+        }
+        else
+        {
+            return new String("");
         }
     }
 
-    Atom consumeAtom()
+    Item consumeAtom()
     {
-        push("atom");
         char[] token;
-        size_t counter = 0;
 
         bool isNumber = true;
         bool isSubst = false;
-        bool isInput = false;
-        bool isOperator = false;
         uint dotCounter = 0;
 
-        // Characters allowed only in the beginning:
-        switch (currentChar)
+        // `$x`
+        if (currentChar == '$')
         {
-            case '-':
-                isOperator = true;
-                token ~= consumeChar();
-                break;
-
-            case '>':
-                isInput = true;
-                isNumber = false;
-                goto case;
-            case '<':
-            case '+':
-            case '*':
-            case '/':
-            case '|':
-            case '&':
-            case '=':
-                isOperator = true;
-                isNumber = false;
-                token ~= consumeChar();
-                break;
-
-            case '$':
-                isNumber = false;
-                isSubst = true;
-                // Throw the character away:
-                consumeChar();
-                break;
-
-            default:
-                break;
+            isNumber = false;
+            isSubst = true;
+            // Do NOT add `$` to the SubstAtom.
+            consumeChar();
+        }
+        else if (currentChar == '-')
+        {
+            token ~= consumeChar();
         }
 
-        // Operators may have two characters:
-        if (isOperator)
+        // The rest:
+        while (!eof && !isWhitespace)
         {
-            switch (currentChar)
-            {
-                case '=':
-                case '>':
-                case '<':
-                case '*':
-                case '/':
-                case '|':
-                case '&':
-                    // TODO: check if the pair is actually valid
-                    // (invalid example: "&|")
-                    token ~= consumeChar();
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        // And all the others:
-        while (true)
-        {
-            if (currentChar >= 'a' && currentChar <= 'z' || currentChar == '_')
-            {
-                isNumber = false;
-                isOperator = false;
-            }
-            else if (currentChar >= '0' && currentChar <= '9')
+            if (currentChar >= '0' && currentChar <= '9')
             {
             }
             else if (currentChar == '.')
             {
                 dotCounter++;
             }
-            else
+            else if (currentChar == '(')
+            {
+                // $(1 + 2 + 4)
+                SimpleList list = consumeSimpleList();
+                return list.infixProgram();
+            }
+            else if (currentChar >= 'A' && currentChar <= 'Z')
+            {
+                uint* p = (currentChar in units);
+                if (p is null)
+                {
+                    throw new Exception(
+                        "Invalid character in name: "
+                        ~ cast(string)token
+                        ~ to!string(currentChar)
+                    );
+                }
+                else
+                {
+                    // Do not consume the unit.
+                    break;
+                }
+            }
+            else if (token.length && STOPPERS.canFind(currentChar))
             {
                 break;
+            }
+            else
+            {
+                isNumber = false;
             }
             token ~= consumeChar();
         }
 
-        pop();
+        debug {stderr.writeln(" token: ", token);}
 
         string s = cast(string)token;
+        debug {stderr.writeln(" s: ", s);}
 
         if (isNumber)
         {
-            if (dotCounter == 0)
+            if (s == "-")
             {
-                // `-`
-                if (isOperator && s.length == 1)
+                return new NameAtom(s);
+            }
+            else if (dotCounter == 0)
+            {
+                uint multiplier = 1;
+                uint* p = (currentChar in units);
+                if (p !is null)
                 {
-                    debug {stderr.writeln("new OperatorAtom: ", s);}
-                    return new OperatorAtom(s);
-                }
-                else
-                {
-                    uint multiplier = 1;
-                    uint* p = (currentChar in units);
-                    if (p !is null)
+                    consumeChar();
+                    if (currentChar == 'i')
                     {
                         consumeChar();
-                        if (currentChar == 'i')
-                        {
-                            consumeChar();
-                            multiplier = pow(1024, *p);
-                        }
-                        else
-                        {
-                            multiplier = pow(1000, *p);
-                        }
+                        multiplier = pow(1024, *p);
                     }
-
-                    debug {
-                        stderr.writeln(
-                            "new IntegerAtom: ", s, " * ", multiplier
-                        );
+                    else
+                    {
+                        multiplier = pow(1000, *p);
                     }
-                    return new IntegerAtom(to!long(s) * multiplier);
                 }
+
+                debug {
+                    stderr.writeln(
+                        "new IntegerAtom: <", s, "> * ", multiplier
+                    );
+                }
+                return new IntegerAtom(to!long(s) * multiplier);
             }
             else if (dotCounter == 1)
             {
@@ -589,18 +688,31 @@ class Parser
             debug {stderr.writeln("new SubstAtom: ", s);}
             return new SubstAtom(s);
         }
-        else if (isInput && !isOperator)
+
+        // Handle hexadecimal format, like 0xabcdef
+        if (s.length > 2 && s[0..2] == "0x")
         {
-            debug {stderr.writeln("new InputNameAtom: ", s);}
-            return new InputNameAtom(s[1..$]);
+            // XXX: should we handle FormatException, here?
+            auto result = toLong(s);
+            debug {stderr.writeln("new IntegerAtom: ", result);}
+            return new IntegerAtom(result);
         }
-        else if (isOperator)
+
+        // Names that are boolean:
+        switch (s)
         {
-            debug {stderr.writeln("new OperatorAtom: ", s);}
-            return new OperatorAtom(s);
+            case "true":
+            case "yes":
+                debug {stderr.writeln("new BooleanAtom(true)");}
+                return new BooleanAtom(true);
+            case "false":
+            case "no":
+                debug {stderr.writeln("new BooleanAtom(false)");}
+                return new BooleanAtom(false);
+            default:
+                debug {stderr.writeln("new NameAtom: ", s);}
+                return new NameAtom(s);
         }
-        
-        debug {stderr.writeln("new NameAtom: ", s);}
-        return new NameAtom(cast(string)token);
+
     }
 }

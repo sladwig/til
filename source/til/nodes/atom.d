@@ -2,24 +2,29 @@ module til.nodes.atom;
 
 import til.nodes;
 
-debug
-{
-    import std.stdio;
-}
+
+CommandsMap booleanCommands;
+CommandsMap integerCommands;
+CommandsMap floatCommands;
+CommandsMap nameCommands;
 
 
-class Atom : ListItem
+class Atom : Item
 {
 }
 
 class NameAtom : Atom
 {
+    // x
+
     string value;
 
     this(string s)
     {
         this.type = ObjectType.Name;
         this.value = s;
+        this.commands = nameCommands;
+        this.typeName = "atom";
     }
 
     // Utilities and operators:
@@ -28,71 +33,65 @@ class NameAtom : Atom
         return this.value;
     }
 
-    override CommandContext evaluate(CommandContext context)
+    override Context evaluate(Context context)
     {
-        context.push(this);
-        context.exitCode = ExitCode.Proceed;
-        return context;
-    }
-}
-
-class InputNameAtom : NameAtom
-{
-    this(string s)
-    {
-        this.type = ObjectType.InputName;
-        super(s);
-    }
-
-    override CommandContext evaluate(CommandContext context)
-    {
-        context.push(this);
-        context.exitCode = ExitCode.Proceed;
-        return context;
+        return context.push(this);
     }
 }
 
 class SubstAtom : NameAtom
 {
+    // $x
+
     this(string s)
     {
         super(s);
+        this.typeName = "subst_atom";
     }
 
-    override CommandContext evaluate(CommandContext context)
+    override Context evaluate(Context context)
     {
-        auto values = context.escopo[value];
-        if (values is null)
+        Items values;
+        try
         {
-            throw new Exception(
-                "Key not found: " ~ value
-            );
+            values = context.escopo[value];
         }
-        else
+        catch (NotFoundException)
         {
-            foreach(value; values.retro)
-            {
-                context.push(value);
-            }
+            auto msg = "Variable " ~ to!string(value) ~ " is not set";
+            return context.error(msg, ErrorCode.InvalidArgument, "");
         }
 
-        context.exitCode = ExitCode.Proceed;
+        foreach(value; values.retro)
+        {
+            context.push(value);
+        }
+
         return context;
     }
 }
 
 class IntegerAtom : Atom
 {
+    // 10
+
     long value;
 
     this(long value)
     {
         this.value = value;
         this.type = ObjectType.Integer;
+        this.typeName = "integer";
+        this.commands = integerCommands;
     }
     IntegerAtom opUnary(string operator)
     {
-        // TODO: filter by `operator`
+        if (operator != "-")
+        {
+            throw new Exception(
+                "Unsupported operator: " ~ operator
+            );
+        }
         return new IntegerAtom(-value);
     }
 
@@ -112,87 +111,19 @@ class IntegerAtom : Atom
     {
         return to!string(value);
     }
-
-    override ListItem operate(string operator, ListItem rhs, bool reversed)
-    {
-        if (reversed) return null;
-
-        debug {stderr.writeln(" > ", this.type, " ", operator, " ", rhs.type);}
-
-        if (rhs.type == ObjectType.Integer)
-        {
-            auto t2 = cast(IntegerAtom)rhs;
-            long result = {
-                final switch(operator)
-                {
-                    // Logic:
-                    case "==":
-                        return this.value == t2.value;
-                    case ">":
-                        return this.value > t2.value;
-                    case ">=":
-                        return this.value >= t2.value;
-                    case "<":
-                        return this.value < t2.value;
-                    case "<=":
-                        return this.value <= t2.value;
-
-                    // Math:
-                    case "+":
-                        return this.value + t2.value;
-                    case "-":
-                        return this.value - t2.value;
-                    case "*":
-                        return this.value * t2.value;
-                    case "/":
-                        return this.value / t2.value;
-                }
-            }();
-            return new IntegerAtom(result);
-        }
-        else if (rhs.type == ObjectType.Float)
-        {
-            auto t2 = cast(FloatAtom)rhs;
-            debug {stderr.writeln(this.value, " ", operator, " ", t2.value);}
-            float result = {
-                final switch(operator)
-                {
-                    // Logic:
-                    case "==":
-                        return this.value == t2.value;
-                    case ">":
-                        return this.value > t2.value;
-                    case ">=":
-                        return this.value >= t2.value;
-                    case "<":
-                        return this.value < t2.value;
-                    case "<=":
-                        return this.value <= t2.value;
-
-                    // Math:
-                    case "+":
-                        return this.value + t2.value;
-                    case "-":
-                        return this.value - t2.value;
-                    case "*":
-                        return this.value * t2.value;
-                    case "/":
-                        return this.value / t2.value;
-                }
-            }();
-            return new FloatAtom(result);
-        }
-        return null;
-    }
 }
 
 class FloatAtom : Atom
 {
+    // 12.34
+
     float value;
     this(float value)
     {
         this.value = value;
         this.type = ObjectType.Float;
+        this.typeName = "float";
+        this.commands = floatCommands;
     }
     override bool toBool()
     {
@@ -208,63 +139,35 @@ class FloatAtom : Atom
     }
     override string toString()
     {
-        return to!string(this.value);
+        return to!string(value);
     }
 
     // Operators:
     FloatAtom opUnary(string operator)
     {
-        // TODO: filter by `operator`
+        if (operator != "-")
+        {
+            throw new Exception(
+                "Unsupported operator: " ~ operator
+            );
+        }
         return new FloatAtom(-value);
-    }
-
-    override ListItem operate(string operator, ListItem rhs, bool reversed)
-    {
-        if (reversed) return null;
-
-        debug {stderr.writeln(" > ", this.type, " ", operator, " ", rhs.type);}
-
-        FloatAtom t2;
-
-        if (rhs.type == ObjectType.Integer)
-        {
-            auto it2 = cast(IntegerAtom)rhs;
-            t2 = new FloatAtom(cast(float)it2.value);
-        }
-        else if (rhs.type == ObjectType.Float)
-        {
-            t2 = cast(FloatAtom)rhs;
-        }
-        else
-        {
-            return null;
-        }
-
-        float result = {
-            final switch(operator)
-            {
-                case "+":
-                    return this.value + t2.value;
-                case "-":
-                    return this.value - t2.value;
-                case "*":
-                    return this.value * t2.value;
-                case "/":
-                    return this.value / t2.value;
-            }
-        }();
-        return new FloatAtom(result);
     }
 }
 
 
 class BooleanAtom : Atom
 {
+    // true
+    // false
+
     bool value;
     this(bool value)
     {
         this.value = value;
         this.type = ObjectType.Boolean;
+        this.typeName = "boolean";
+        this.commands = booleanCommands;
     }
     override bool toBool()
     {
@@ -281,22 +184,5 @@ class BooleanAtom : Atom
     override string toString()
     {
         return to!string(value);
-    }
-}
-
-class OperatorAtom : Atom
-{
-    string value;
-
-    this(string s)
-    {
-        value = s;
-        this.type = ObjectType.Operator;
-    }
-
-    // Utilities and operators:
-    override string toString()
-    {
-        return this.value;
     }
 }

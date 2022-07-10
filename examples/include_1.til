@@ -1,6 +1,9 @@
-io.out "Including a file..."
+print "START"
 
-include "examples/include_2.til"
+print "Including a file..."
 
-hello "include_1"
-io.out "END"
+include "include_2.til"
+
+assert $([hello "include_1"] == "hello!")
+
+print "END"

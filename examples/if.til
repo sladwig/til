@@ -1,28 +1,41 @@
+print "START"
+
 set x 10
+set something_is_wrong false
 
-if ($x > 10) {
-    io.out "if condition is WRONG. $x is NOT greater than 10."
+if $($x > 10) {
+    print "if condition is WRONG. $x is NOT greater than 10."
+    set something_is_wrong true
 } else {
-    io.out "Correct: $x is not greater than 10."
+    print "Correct: $x is not greater than 10."
 }
-if ($x == 10) {
-    io.out "Correct: $x is 10"
+if $($x == 10) {
+    print "Correct: $x is 10"
 } else {
-    io.out "if condition is WRONG. $x is indeed 10."
-}
-
-if ($x < 11) {
-    io.out "Correct: $x is lesser than 11."
-} else {
-    io.out "if condition is WRONG. $x is not greater nor equal than 11."
+    print "if condition is WRONG. $x is indeed 10."
+    set something_is_wrong true
 }
 
-if ($x > 11) {
-    io.out "if condition is WRONG. $x is not greater nor equal than 11."
-} else if ($x > 12) {
-    io.out "if condition is WRONG. $x is not greater nor equal than 12."
+if $($x < 11) {
+    print "Correct: $x is lesser than 11."
 } else {
-    io.out "Correct: $x is lesser than 11 and 12."
+    print "if condition is WRONG. $x is not greater nor equal than 11."
+    set something_is_wrong true
 }
 
-io.out "END"
+# if/else if/else is ugly. Prefer run/when. See `when.til`.
+if $($x > 11) {
+    print "if condition is WRONG. $x is not greater than 11."
+    set something_is_wrong true
+} else {
+    if $($x > 12) {
+        print "if condition is WRONG. $x is not greater than 12."
+        set something_is_wrong true
+    } else {
+        print "Correct: $x is lesser than 11 and 12."
+    }
+}
+
+assert $($something_is_wrong == false)
+
+print "END"

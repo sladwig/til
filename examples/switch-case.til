@@ -1,28 +1,45 @@
+print "START"
+
 set offset 10
-range 0 10 | transform x {
-        return $x [math ($x + $offset)]
-    } | case (>x 10) {
-        io.out "$x + $offset is ten"
-    } | case (>x 11) {
-        io.out "$x + $offset is eleven"
-    } | case (>x >y) {
-        io.out "$x + $offset is $y"
-        break
-    } | case (>x >y) {
-        io.out "$x + 10 is $y"
-        io.out "BUT THIS MESSAGE SHOULD NOT BE DISPLAYED!"
+
+proc on.error (e) {
+    print "ERROR: $e"
+}
+
+range 0 5 | transform x {
+        return $($x + $offset) $x
+    } | foreach x {
+        print "x:" [list $x]
+        list $x | as (a b)
+
+        run {
+            when $($a == 10) {
+                print "$b + $offset is ten"
+            }
+            when $($a == 11) {
+                print "$b + $offset is eleven"
+            }
+            default {
+                print "a is $a, b is $b"
+            }
+        }
     }
 
-range 100 105 | case (>x) {
-        io.out "$x"
+range (x y z alfa beta gama) | foreach x {
+    run {
+        when $($x == x) {
+            print "xis"
+        }
+        when $($x == y) {
+            print "ipsolon"
+        }
+        when $($x == z) {
+            print "zee"
+        }
+        default {
+            print "other: $x"
+        }
     }
+}
 
-range (x y z) | case (x) {
-        io.out "xis"
-    } | case (y) {
-        io.out "ipsolon"
-    } | case (z) {
-        io.out "zee"
-    } | case (>x) {
-        io.out " that is, $x"
-    }
+print "END"

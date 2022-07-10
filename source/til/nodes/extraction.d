@@ -13,24 +13,34 @@ class Extraction : BaseList
 
     override string toString()
     {
+        // TODO: improve this:
+        // <[obj, key]> -> <obj key>
         return "<" ~ to!string(items) ~ ">";
     }
 
-    override CommandContext evaluate(CommandContext context)
+    override Context evaluate(Context context)
     {
         context.size = 0;
         foreach(item; this.items.retro)
         {
-            context.run(&(item.evaluate));
+            context = item.evaluate(context);
+            if (context.exitCode == ExitCode.Failure)
+            {
+                return context;
+            }
         }
 
-        ListItem target = context.pop();
-        Items arguments = context.items;
+        Item target = context.pop();
 
-        auto result = target.extract(arguments);
-        context.push(result);
+        try
+        {
+            context = target.runCommand("extract", context);
+        }
+        catch (Exception ex)
+        {
+            return context.error(ex.msg, ErrorCode.Unknown, "");
+        }
 
-        context.exitCode = ExitCode.Proceed;
         return context;
     }
 }

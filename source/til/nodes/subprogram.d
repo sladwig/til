@@ -2,39 +2,58 @@ module til.nodes.subprogram;
 
 import til.nodes;
 
-class SubProgram
-{
-    string name = "<SubProgram>";
-    Pipeline[] pipelines;
 
-    CommandHandler[string] commands;
-    static CommandHandler[string] globalCommands;
-    static CommandHandler[string][string] availableModules;
+CommandsMap subprogramCommands;
+
+
+class SubProgram : BaseList
+{
+    Pipeline[] pipelines;
 
     this(Pipeline[] pipelines)
     {
         this.pipelines = pipelines;
-    }
-
-    void registerGlobalCommands(CommandHandler[string] commands)
-    {
-        foreach(key, value; commands)
-        {
-            this.globalCommands[key] = value;
-        }
-    }
-    void addModule(string key, CommandHandler[string] commands)
-    {
-        availableModules[key] = commands;
+        this.type = ObjectType.SubProgram;
+        this.typeName = "subprogram";
+        this.commands = subprogramCommands;
     }
 
     override string toString()
     {
-        string s = "SubProgram " ~ this.name ~ ":\n";
-        foreach(pipeline; pipelines)
+        string s = "";
+        if (pipelines.length < 2)
         {
-            s ~= to!string(pipeline) ~ "\n";
+            foreach(pipeline; pipelines)
+            {
+                s ~= pipeline.toString();
+            }
+        }
+        else
+        {
+            s ~= "{\n";
+            foreach(pipeline; pipelines)
+            {
+                s ~= pipeline.toString() ~ "\n";
+            }
+            s ~= "}";
         }
         return s;
+    }
+
+    override Context evaluate(Context context)
+    {
+        return this.evaluate(context, false);
+    }
+    override Context evaluate(Context context, bool force)
+    {
+        if (!force)
+        {
+            context.push(this);
+            return context;
+        }
+        else
+        {
+            return new ExecList(this).evaluate(context);
+        }
     }
 }

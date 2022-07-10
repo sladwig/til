@@ -1,14 +1,15 @@
 set result [
     set r 0
-    range 1000 | foreach x {
-        if ($x >= 5) {
+    range 100 | foreach x {
+        if $($x >= 5) {
             continue
         }
-        io.out $x
+        print $x
         set r $x
     }
-    io.out "end"
+    print "end"
     return $r
 ]
 
-io.out "Result: $result"
+print "Result: $result (expected: 4)"
+assert $($result == 4)

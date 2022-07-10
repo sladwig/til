@@ -2,79 +2,88 @@ module til.context;
 
 import std.array;
 
+import til.process;
 import til.nodes;
-import til.ranges;
 
-debug
-{
-    import std.stdio;
-}
 
-struct CommandContext
+struct Context
 {
-    Process escopo;
-    ExitCode exitCode = ExitCode.Proceed;
+    Escopo escopo;
+    Process process;
+    ExitCode exitCode = ExitCode.Success;
+    uint inputSize = 0;
 
     /*
     Commands CAN pop beyond local zero, so
-    resist the temptation to make it
-    an uint.
+    resist the temptation to make it an uint:
     */
     int size = 0;
 
-    Range stream = null;
-
     @disable this();
-    this(Process escopo)
+    this(Process process, Escopo escopo, int size=0)
     {
-        this(escopo, 0);
-    }
-    this(Process escopo, int argumentCount)
-    {
+        this.process = process;
         this.escopo = escopo;
-        this.size = argumentCount;
+        this.size = size;
     }
-    CommandContext next()
-    {
-        return this.next(0);
-    }
-    CommandContext next(int argumentCount)
+
+    Context next(int argumentCount=0)
     {
         return this.next(escopo, argumentCount);
     }
-    CommandContext next(Process escopo)
+    Context next(Escopo escopo, int size=0)
     {
-        return this.next(escopo, 0);
-    }
-    CommandContext next(Process escopo, int argumentCount)
-    {
-        auto newContext = CommandContext(escopo, argumentCount);
-        // Pass along stream and any other data
-        // shared between commands int the
-        // pipeline:
-        newContext.stream = this.stream;
+        this.size -= size;
+        auto newContext = Context(process, escopo, size);
         return newContext;
     }
 
     string toString()
     {
-        string s = "STACK:" ~ to!string(escopo.stackAsString);
+        string s = " process " ~ to!string(process.index);
         s ~= " (" ~ to!string(size) ~ ")";
-        s ~= " process " ~ to!string(this.escopo.index);
         return s;
+    }
+    string description()
+    {
+        string[] path;
+
+        auto pivot = escopo;
+        while (pivot !is null)
+        {
+            if (pivot.description)
+            {
+                path ~= pivot.description;
+            }
+            else
+            {
+                path ~= "?";
+            }
+            pivot = pivot.parent;
+        }
+
+        if (process.description)
+        {
+            path ~= process.description;
+        }
+        else
+        {
+            path ~= "?";
+        }
+
+        return path.retro.join("/");
     }
 
     // Stack-related things:
-    ListItem peek()
+    Item peek(uint index=1)
     {
-        return escopo.peek();
+        return process.stack.peek(index);
     }
-    template pop(T : ListItem)
+    template pop(T : Item)
     {
         T pop()
         {
             auto info = typeid(T);
-            debug {stderr.writeln("popping as a class: ", info);}
             auto value = this.pop();
             return cast(T)value;
         }
@@ -111,19 +120,31 @@ struct CommandContext
             return value.toString;
         }
     }
-    ListItem pop()
+    Item pop()
     {
         size--;
-        return escopo.pop();
+        return process.stack.pop();
     }
-    ListItem[] pop(uint count)
+    Item popOrNull()
+    {
+        if (process.stack.isEmpty)
+        {
+            return null;
+        }
+        else
+        {
+            return this.pop();
+        }
+    }
+
+    Item[] pop(uint count)
     {
         return this.pop(cast(ulong)count);
     }
-    ListItem[] pop(ulong count)
+    Item[] pop(ulong count)
     {
         size -= count;
-        return escopo.pop(count);
+        return process.stack.pop(count);
     }
     template pop(T)
     {
@@ -138,19 +159,42 @@ struct CommandContext
         }
     }
 
-    void push(ListItem item)
+    Context push(Item item)
     {
-        escopo.push(item);
+        process.stack.push(item);
         size++;
+        return this;
+    }
+    Context push(Items items)
+    {
+        foreach(item; items)
+        {
+            push(item);
+        }
+        return this;
     }
     template push(T)
     {
-        void push(T x)
+        Context push(T x)
         {
-            escopo.push(x);
+            process.stack.push(x);
             size++;
+            return this;
         }
     }
+    Context ret(Item item)
+    {
+        push(item);
+        exitCode = ExitCode.Success;
+        return this;
+    }
+    Context ret(Items items)
+    {
+        this.push(items);
+        exitCode = ExitCode.Success;
+        return this;
+    }
+
     template items(T)
     {
         T[] items()
@@ -171,7 +215,7 @@ struct CommandContext
         {
             auto x = size;
             size = 0;
-            return escopo.pop(x);
+            return process.stack.pop(x);
         }
         else
         {
@@ -179,49 +223,12 @@ struct CommandContext
         }
     }
 
-    void assimilate(CommandContext other)
-    {
-        this.size += other.size;
-        // XXX : should we care about other.stream???
-        // I don't think so, but not sure...
-    }
-
-    // Scheduler-related things
-    void yield()
-    {
-        escopo.getRoot().scheduler.yield();
-    }
-
-    // Execution
-    void run(CommandContext function(CommandContext) f)
-    {
-        return this.run(f, 0);
-    }
-    void run(CommandContext function(CommandContext) f, int argumentCount)
-    {
-        auto rContext = f(this.next(argumentCount));
-        this.assimilate(rContext);
-    }
-    void run(CommandContext delegate(CommandContext) f)
-    {
-        auto rContext = f(this.next);
-        this.assimilate(rContext);
-    }
-
     // Errors
-    CommandContext error(string message, int code, string classe)
+    Context error(string message, int code, string classe, Item object=null)
     {
-        auto e = new Erro(escopo, message, code, classe);
+        auto e = new Erro(message, code, classe, this, object);
         push(e);
         this.exitCode = ExitCode.Failure;
-        this.stream = null;
-
-        /*
-        Return this so we can simply write
-        "return context.error(...)"
-        inside commands
-        implementations
-        */
         return this;
     }
 }
